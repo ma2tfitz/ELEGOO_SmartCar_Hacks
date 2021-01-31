@@ -33,8 +33,8 @@
 #define RECV_PIN 12
 
 /*Arduino pin is connected to the Ultrasonic sensor module*/
-#define ECHO_PIN A4
-#define TRIG_PIN A5
+#define ECHO_PIN A2
+#define TRIG_PIN A3
 const int ObstacleDetection = 35;
 
 /*Arduino pin is connected to the Motor drive module*/
