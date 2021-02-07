@@ -28,10 +28,14 @@
 #define IN2 8
 #define IN3 9
 #define IN4 11
+
 #define LED 13
 
 #define PHOTO_LEFT A0
 #define PHOTO_RIGHT A1
+
+#define TRIG_PIN A2
+#define ECHO_PIN A3
 
 boolean is_running = false;
 
@@ -83,7 +87,6 @@ void left() {
   digitalWrite(IN2,HIGH);
   digitalWrite(IN3,LOW);
   digitalWrite(IN4,HIGH);
-  Serial.println("**** Left!");
 }
 
 void right() {
@@ -102,6 +105,19 @@ void stop(){
   digitalWrite(ENB,LOW);
   digitalWrite(LED, LOW);
   //Serial.println("Stop!");
+}
+
+// ultrasonic distance
+unsigned int get_distance(void) {
+  unsigned int duration = 0;
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  duration = ((unsigned int)pulseIn(ECHO_PIN, HIGH, 35) / 58); // .0343 cm/uS there & back
+  // could clamp to 150cm here
+  return duration;
 }
 
 void update_rsl() {
@@ -124,6 +140,10 @@ void setup() {
   pinMode(IN3,OUTPUT);
   pinMode(IN4,OUTPUT);
   stop();
+
+  // Ultrasonic setup
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(TRIG_PIN, OUTPUT);
 
   // IMU setup
   Wire.begin();
@@ -217,5 +237,9 @@ void loop() {
     Serial.print(photo_left);
     Serial.print(" ");
     Serial.println(photo_right);
+  }
+
+  if (get_distance() < 20) {
+    stop();
   }
 }
