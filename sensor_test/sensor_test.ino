@@ -33,15 +33,30 @@
 #define PHOTO_LEFT A0
 #define PHOTO_RIGHT A1
 
-unsigned char turn_speed = 250;
-unsigned char drive_speed = 250;
-bool state = LOW;
+boolean is_running = false;
+
+unsigned char turn_speed = 180;
+unsigned char drive_speed = 180;
+
+long rsl_millis = 0;
+long rsl_state = LOW;
 
 // IMU setup
 MPU6050 mpu(Wire);
 long timer = 0;
 
-void forward(){ 
+void slowturn() {
+  is_running = true;
+  analogWrite(ENA,90);
+  analogWrite(ENB,255);
+  digitalWrite(IN1,HIGH);
+  digitalWrite(IN2,LOW);
+  digitalWrite(IN3,LOW);
+  digitalWrite(IN4,HIGH);
+}
+
+void forward() {
+  is_running = true;
   digitalWrite(ENA,drive_speed);
   digitalWrite(ENB,drive_speed);
   digitalWrite(IN1,HIGH);
@@ -50,7 +65,8 @@ void forward(){
   digitalWrite(IN4,HIGH);
 }
 
-void back(){
+void back() {
+  is_running = true;
   digitalWrite(ENA,drive_speed);
   digitalWrite(ENB,drive_speed);
   digitalWrite(IN1,LOW);
@@ -59,16 +75,19 @@ void back(){
   digitalWrite(IN4,LOW);
 }
 
-void left(){
+void left() {
+  is_running = true;
   analogWrite(ENA,turn_speed);
   analogWrite(ENB,turn_speed);
   digitalWrite(IN1,LOW);
   digitalWrite(IN2,HIGH);
   digitalWrite(IN3,LOW);
-  digitalWrite(IN4,HIGH); 
+  digitalWrite(IN4,HIGH);
+  Serial.println("**** Left!");
 }
 
-void right(){
+void right() {
+  is_running = true;
   analogWrite(ENA,turn_speed);
   analogWrite(ENB,turn_speed);
   digitalWrite(IN1,HIGH);
@@ -78,18 +97,22 @@ void right(){
 }
 
 void stop(){
+  is_running = false;
   digitalWrite(ENA,LOW);
   digitalWrite(ENB,LOW);
   digitalWrite(LED, LOW);
-  Serial.println("Stop!");
+  //Serial.println("Stop!");
 }
 
-void stateChange(){
-  state = !state;
-  digitalWrite(LED, state);
+void update_rsl() {
+  if (millis() - rsl_millis > 1000) {
+    rsl_millis = millis();
+    rsl_state = !rsl_state;
+    digitalWrite(LED, rsl_state);
+  }
 }
 
-void setup() { 
+void setup() {
   Serial.begin(9600);
 
   // Motor setup
@@ -104,88 +127,95 @@ void setup() {
 
   // IMU setup
   Wire.begin();
-  
+ 
   byte status = mpu.begin();
   while (status != 0) {
     Serial.print("Unable to connect to MPU6050: ");
     Serial.println(status);
-    digitialWrite(LED, HIGH);
+    digitalWrite(LED, HIGH);
     delay(2000);
-    digitialWrite(LED, LOW);
+    digitalWrite(LED, LOW);
     delay(500);
     status = mpu.begin();
   }
-  digitialWrite(LED, HIGH);
+  
+  digitalWrite(LED, HIGH);
   Serial.print(F("MPU6050 connected: "));
   Serial.println(status);
   Serial.println(F("Calculating offsets, do not move MPU6050"));
   delay(1000);
   mpu.calcOffsets(true,true); // gyro and accelero
-  digitialWrite(LED, LOW);
+  digitalWrite(LED, LOW);
   Serial.println("MPU6050 Done!\n");
+  timer = millis();
 }
 
-void loop() { 
+void loop() {
+  update_rsl();
   if (Serial.available()) {
     digitalWrite(LED,HIGH);
     char cmd = Serial.read();
+    Serial.print("**** Got: ");
+    Serial.print(cmd);
+    Serial.print(" ");
+    Serial.println((int)cmd);
     switch(cmd) {
       //case 'f': forward(); break;
       //case 'b': back();    break;
     case 'l': left();    break;
+    case 't': slowturn();    break;
     case 'r': right();   break;
     case 's': stop();    break;
-    case 'a': stateChange(); break;
-    default:stop()       break;
+    default: break;
     }
+  }
 
-    mpu.update(); // update frequently
+  mpu.update(); // update frequently
 
-    if (millis() - timer > 100) { // print data at most 10 times a second
-      double temp = mpu.getTemp();
+  // log data at most 20 times a second
+  // only print if running to avoid filling the buffer
+  if (is_running && millis() - timer > 50) {
+    double temp = mpu.getTemp();
 
-      double ax = mpu.getAccX();
-      double ay = mpu.getAccY();
-      double az = mpu.getAccZ();
+    double ax = mpu.getAccX();
+    double ay = mpu.getAccY();
+    double az = mpu.getAccZ();
 
-      double gx = mpu.getGyroX();
-      double gy = mpu.getGyroY();
-      double gz = mpu.getGyroZ();
+    double gx = mpu.getGyroX();
+    double gy = mpu.getGyroY();
+    double gz = mpu.getGyroZ();
 
-      double tx = mpu.getAngleX();
-      double ty = mpu.getAngleY();
-      double tz = mpu.getAngleZ();
+    double tx = mpu.getAngleX();
+    double ty = mpu.getAngleY();
+    double tz = mpu.getAngleZ();
 
-      timer = millis();
-    
-      photo_left = analogRead(PHOTO_LEFT);
-      photo_right = analogRead(PHOTO_RIGHT);
+    timer = millis();
+   
+    double photo_left = analogRead(PHOTO_LEFT);
+    double photo_right = analogRead(PHOTO_RIGHT);
 
-      Serial.print(ax);
-      Serial.print(" ");
-      Serial.print(ay);
-      Serial.print(" ");
-      Serial.print(az);
-      Serial.print(" ");
-      Serial.print(gx);
-      Serial.print(" ");
-      Serial.print(gy);
-      Serial.print(" ");
-      Serial.print(gz);
-      Serial.print(" ");
-      Serial.print(tx);
-      Serial.print(" ");
-      Serial.print(ty);
-      Serial.print(" ");
-      Serial.print(tz);
-      Serial.print(" ");
-      Serial.print(temp);
-      Serial.print(" ");
-      Serial.print(photo_left);
-      Serial.print(" ");
-      Serial.println(photo_right);
-    }
-  } else {
-    stop();
+    Serial.print(ax);
+    Serial.print(" ");
+    Serial.print(ay);
+    Serial.print(" ");
+    Serial.print(az);
+    Serial.print(" ");
+    Serial.print(gx);
+    Serial.print(" ");
+    Serial.print(gy);
+    Serial.print(" ");
+    Serial.print(gz);
+    Serial.print(" ");
+    Serial.print(tx);
+    Serial.print(" ");
+    Serial.print(ty);
+    Serial.print(" ");
+    Serial.print(tz);
+    Serial.print(" ");
+    Serial.print(temp);
+    Serial.print(" ");
+    Serial.print(photo_left);
+    Serial.print(" ");
+    Serial.println(photo_right);
   }
 }
