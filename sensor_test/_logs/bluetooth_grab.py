@@ -8,8 +8,10 @@ serial_port = "/dev/rfcomm0"
 dat = "A"
 if __name__ == '__main__':
     ser = serial.Serial(serial_port, serial_speed, timeout=1)
-    ser.write(b'l')
+    ser.write(b't')
     for i in range(500):
         dat = ser.readline()
-        print(dat)
+        dat = dat.decode("utf8", "ignore")
+        fields = dat.rstrip().split(" ")
+        print(time.time(), *fields, sep="\t")
     ser.write(b's')
