@@ -5,7 +5,7 @@
 
 #filename = "turn_and_stop.log"
 filename = "one_turn.log"
-filename = "multiple_turns.log"
+#filename = "multiple_turns.log"
 
 a = read.delim(filename)
 
