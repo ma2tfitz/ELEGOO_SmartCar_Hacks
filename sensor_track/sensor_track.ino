@@ -51,28 +51,30 @@ long rsl_state = LOW;
 MPU6050 mpu(Wire);
 long timer = 0;
 
-void track_light(left, right) {
-  int speed;
+void track_light(int left, int right) {
+  int left_speed, right_speed;
   is_running = true;
   if (left  < 100 && right <  100) {
-    stop();
+    digitalWrite(ENA,LOW);
+    digitalWrite(ENB,LOW);
     return;
   }
 
-  right = right + 56;
+  right = right + 30;
     
-  if (left < right) {
-    right_speed = 160 - (right - left);
-    left_speed = 160;
+  if (left < right + 80) {
+    left_speed = 100;
+    right_speed = 200;
+  } else if (right < left + 80) {
+    left_speed = 200;
+    right_speed = 100;
   } else {
-    right_speed = 160;
-    left_speed = 160 - (left - right);
+    left_speed = 100;
+    right_speed = 100;
   }
-    
-  left_speed = min(left_speed, 80);
-  right_speed = min(right_speed, 80);
-  analogWrite(ENA,left_speed);
-  analogWrite(ENB,right_speed);
+ 
+  analogWrite(ENA,right_speed);
+  analogWrite(ENB,left_speed);
   digitalWrite(IN1,HIGH);
   digitalWrite(IN2,LOW);
   digitalWrite(IN3,LOW);

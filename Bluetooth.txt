@@ -1,0 +1,15 @@
+Device 00:18:67:89:A2:C0 CoolStream
+Device 98:D3:51:FD:BA:79 HC-05
+
+$ systemctl start bluetooth
+$ bluetoothctl
+# power on
+# agent on
+scan on
+scan off
+
+# pair 98:D3:51:FD:BA:79
+
+$ sudo rfcomm bind 0 98:D3:51:FD:BA:79
+
+

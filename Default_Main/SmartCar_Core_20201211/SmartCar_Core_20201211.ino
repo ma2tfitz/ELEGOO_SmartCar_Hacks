@@ -838,7 +838,7 @@ void getDistance_xx(void)
 /*
   Bluetooth serial port data acquisition and control command parsing
 */
-#include "hardwareSerial.h"
+// #include "hardwareSerial.h"
 void getBTData_Plus(void)
 {
   static String SerialPortData = "";

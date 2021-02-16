@@ -42,8 +42,8 @@ boolean is_running = false;
 
 #define MIN_SPEED 90
 #define MAX_SPEED 160
-unsigned char turn_speed = 160;
-unsigned char drive_speed = 160;
+unsigned char turn_speed = 120;
+unsigned char drive_speed = 100;
 
 long rsl_millis = 0;
 long rsl_state = LOW;
@@ -60,19 +60,38 @@ void gyro_reset() {
 }
 
 double gyro_get_angle() {
-  return mpu.getAngleZ() - offset_gyro_angle_z;
+  return (mpu.getAngleZ() - offset_gyro_angle_z) / 2;
 }
 
 void tracking_start(double angle) {
   is_tracking = true;
   target_angle = angle;
   gyro_reset();
-  left();
+  if (angle > 0) {
+    left();
+  } else {
+    right();
+  }
 }
 
-void tracking_is_done() {
+boolean tracking_is_done() {
   double angle = gyro_get_angle();
-  return abs(angle - target_angle) > 360 || abs(angle - target_angle) < 1;
+  double delta = target_angle - angle;
+  if (delta > 0) {
+    left();
+  } else {
+    right();
+  }
+
+  if (false && millis()- timer > 50) {
+    timer = millis();
+    Serial.print(delta);
+    Serial.print(" ");
+    Serial.print(target_angle);
+    Serial.print(" ");
+    Serial.println(angle);
+  }
+  return abs(delta) < 0.35;
 }
 
 void forward() {
@@ -85,7 +104,7 @@ void forward() {
   digitalWrite(IN4,HIGH);
 }
 
-void back() {
+void backward() {
   is_running = true;
   digitalWrite(ENA,drive_speed);
   digitalWrite(ENB,drive_speed);
@@ -205,8 +224,14 @@ void loop() {
       //case 'f': forward(); break;
       //case 'b': back();    break;
     case 'l': left();    break;
-    case 't': track_to_angle(45);    break;
+    case 't': tracking_start(180);  break;
+    case 'u': tracking_start(-180); break;
+    case 'v': tracking_start(90);   break;
+    case 'w': tracking_start(-90);  break;
+    case 'x': tracking_start(120);  break;   
     case 'r': right();   break;
+    case 'f': forward(); break;
+    case 'b': backward(); break;
     case 's': stop();    break;
     default: break;
     }
@@ -225,7 +250,7 @@ void loop() {
     stop();
   }
   // log data while tracking
-  if (is_tracking) {
+  if (is_tracking && millis() - timer >= 50) {
     double temp = mpu.getTemp();
 
     double ax = mpu.getAccX();
