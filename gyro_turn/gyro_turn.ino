@@ -52,6 +52,7 @@ long rsl_state = LOW;
 MPU6050 mpu(Wire);
 long timer = 0;
 
+
 double offset_gyro_angle_z;
 
 void gyro_reset() {
@@ -82,7 +83,7 @@ boolean tracking_is_done() {
     right();
   }
 
-  if (false && millis() - timer > 50) {
+  if (false && millis()- timer > 50) {
     timer = millis();
     Serial.print(delta);
     Serial.print(" ");
