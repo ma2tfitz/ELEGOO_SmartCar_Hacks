@@ -46,7 +46,7 @@
 
 int current_state = STATE_DISABLED;
 
-unsigned char turn_speed = 120;
+unsigned char turn_speed = 150;
 unsigned char drive_speed = 100;
 
 long rsl_millis = 0;
@@ -58,14 +58,11 @@ double gyro_angle_z_target;
 
 long report_millis; // Check Serial interval
 long turn_millis; // when did last turn start
-
+int turn_count;
 boolean turning_left = true;
-
 
 // IMU setup
 MPU6050 mpu(Wire);
-
-
 
 void update_rsl() {
   int timeout = current_state == STATE_DISABLED ? 500 : 2500;
@@ -148,6 +145,32 @@ double gyro_get_angle() {
   return (mpu.getAngleZ() - gyro_angle_z_offset) / 2.0;
 }
 
+double turn_to_light() {
+  double max_photo_val = 0;
+  double max_photo_angle = 0;
+  gyro_reset();
+  right();
+  while(gyro_get_angle() > -60) {
+    delay(50);
+  }
+  gyro_reset();
+  left();
+  while(gyro_get_angle() < 120) {
+    delay(50);
+    double p = get_photo();
+    if (p > max_photo_val) {
+        max_photo_val = p;
+        max_photo_angle = gyro_get_angle();
+    }
+  }
+  right();
+  while(gyro_get_angle() > max_photo_angle) {
+    delay(50);
+  }
+  stop();
+  return max_photo_angle;
+}
+
 void setup() {
   Serial.begin(9600);
 
@@ -196,24 +219,10 @@ void setup() {
 void loop() {
 
   mpu.update(); // update frequently
-
-  if (turning_left) {
-     left();
-  } else {
-     right();
-  }
-  delay(100);
-  stop();
-  delay(50);
-  Serial.print(turning_left ? "left" : "right");
-  Serial.print(" ");
-  Serial.print(turn_count);
-  Serial.print(" ");
-  Serial.println(gyro_get_angle());
-  turn_count += 1;
-  if (turn_count > 10) {
-    turn_count = 0;
-    turning_left = !turning_left;
+  if (millis() - turn_millis > 5000) {
+    turn_millis = millis();
+    double p = turn_to_light();
+    Serial.println(p);
   }
   
 }

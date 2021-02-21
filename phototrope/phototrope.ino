@@ -46,11 +46,14 @@
 
 int current_state = STATE_DISABLED;
 
-unsigned char turn_speed = 120;
-unsigned char drive_speed = 100;
+unsigned char turn_speed = 160;
+unsigned char drive_speed = 90;
 
 long rsl_millis = 0;
 long rsl_state = LOW;
+
+long start_millis;
+long end_millis;
 
 double current_photo;
 double gyro_angle_z_offset;
@@ -71,7 +74,7 @@ void setup() {
   pinMode(IN3,OUTPUT);
   pinMode(IN4,OUTPUT);
   stop();
-  is_running = false;
+
 
   // Ultrasonic setup
   pinMode(ECHO_PIN, INPUT);
@@ -104,7 +107,7 @@ void setup() {
 
 
 void update_rsl() {
-  int timeout = current_state == STATE_DISABLED ? 500 : 2500;
+  int timeout = current_state == STATE_DISABLED ? 250 : 1000;
   if (millis() - rsl_millis >= timeout) {
     rsl_millis = millis();
     rsl_state = !rsl_state;
@@ -145,7 +148,7 @@ void disable() {
 }
 
 void forward() {
-  is_running = true;
+
   digitalWrite(ENA,drive_speed);
   digitalWrite(ENB,drive_speed);
   digitalWrite(IN1,HIGH);
@@ -155,7 +158,7 @@ void forward() {
 }
 
 void backward() {
-  is_running = true;
+
   digitalWrite(ENA,drive_speed);
   digitalWrite(ENB,drive_speed);
   digitalWrite(IN1,LOW);
@@ -165,7 +168,7 @@ void backward() {
 }
 
 void left() {
-  is_running = true;
+
   analogWrite(ENA,turn_speed);
   analogWrite(ENB,turn_speed);
   digitalWrite(IN1,LOW);
@@ -175,7 +178,7 @@ void left() {
 }
 
 void right() {
-  is_running = true;
+
   analogWrite(ENA,turn_speed);
   analogWrite(ENB,turn_speed);
   digitalWrite(IN1,HIGH);
@@ -228,21 +231,36 @@ void turn_to_light() {
   double photo_max_value = 0;
   gyro_reset();
   left();
-  while(gyro_get_angle() < 45) {
+  while(abs(gyro_get_angle()) < 60) {
+    Serial.print("setting ");
+    Serial.println(gyro_get_angle());
+    delay(20);
   }
   stop();
-  gyro_reset();
+  //gyro_reset();
   right();
-  while(gyro_get_angle() > -45) {
+  while(gyro_get_angle() > -60) {
+    Serial.print("current ");
+    Serial.println(gyro_get_angle());
+    if (abs(gyro_get_angle()) > 80)
+      break;
+      
     double p = get_photo();
     if (p > photo_max_value) {
       photo_max_value = p;
       photo_max_angle = gyro_get_angle();
     }
+    right();
+    delay(100);
+    stop();
+    delay(100);
   }
+  Serial.print("target ");
+  Serial.println(photo_max_angle);
   stop();
   left();
-  while(gyro_get_angle() < photo_max_angle) {
+  while(gyro_get_angle() < photo_max_angle || abs(gyro_get_angle()) < 180) {
+    delay(10);
   }
   stop();
 }
@@ -262,6 +280,11 @@ void loop() {
   update_rsl();
   mpu.update(); // update frequently
 
+  if (current_state == STATE_DISABLED) {
+      stop();
+      return;
+  }
+    
   int distance = get_distance();
   if (distance < 20) {
     backward();
@@ -281,7 +304,13 @@ void loop() {
     current_state = STATE_DRIVING;
   } else if (current_state == STATE_DRIVING) {
     forward();
-    if (get_photo < current_photo * 0.9) {
+    double p = get_photo();
+    if (p > 750) {
+      Serial.print("Stopped on ");
+      Serial.println(p);
+      stop();
+      current_state = STATE_DISABLED;
+    } else if (p < 40 || p < current_photo * 0.80) {
       stop();
       current_state = STATE_SEEKING;
     }
