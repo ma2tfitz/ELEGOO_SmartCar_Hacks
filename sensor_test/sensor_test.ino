@@ -1,5 +1,4 @@
 /*
-
  Test updated sensor on the ELEGOO V3+
  - ultrasonic moves to A2/A3 to free I2C pins
  - MPU6050 IMU on I2C bus
@@ -37,74 +36,44 @@
 #define ECHO_PIN A2
 #define TRIG_PIN A3
 
-boolean is_running = false;
+#define MIN_SPEED 90
+#define MAX_SPEED 160
 
-unsigned char turn_speed = 180;
-unsigned char drive_speed = 180;
+#define STATE_DISABLED 0
+#define STATE_SEEKING 1
+#define STATE_AVOIDING 2
+#define STATE_DRIVING 3
+
+int current_state = STATE_DISABLED;
+
+unsigned char turn_speed = 120;
+unsigned char drive_speed = 100;
 
 long rsl_millis = 0;
 long rsl_state = LOW;
 
+double current_photo;
+double gyro_angle_z_offset;
+double gyro_angle_z_target;
+
+long report_millis; // Check Serial interval
+long turn_millis; // when did last turn start
+
+boolean turning_left = true;
+
+
 // IMU setup
 MPU6050 mpu(Wire);
-long timer = 0;
 
-void slowturn() {
-  is_running = true;
-  analogWrite(ENA,90);
-  analogWrite(ENB,255);
-  digitalWrite(IN1,HIGH);
-  digitalWrite(IN2,LOW);
-  digitalWrite(IN3,LOW);
-  digitalWrite(IN4,HIGH);
-}
 
-void forward() {
-  is_running = true;
-  digitalWrite(ENA,drive_speed);
-  digitalWrite(ENB,drive_speed);
-  digitalWrite(IN1,HIGH);
-  digitalWrite(IN2,LOW);
-  digitalWrite(IN3,LOW);
-  digitalWrite(IN4,HIGH);
-}
 
-void back() {
-  is_running = true;
-  digitalWrite(ENA,drive_speed);
-  digitalWrite(ENB,drive_speed);
-  digitalWrite(IN1,LOW);
-  digitalWrite(IN2,HIGH);
-  digitalWrite(IN3,HIGH);
-  digitalWrite(IN4,LOW);
-}
-
-void left() {
-  is_running = true;
-  analogWrite(ENA,turn_speed);
-  analogWrite(ENB,turn_speed);
-  digitalWrite(IN1,LOW);
-  digitalWrite(IN2,HIGH);
-  digitalWrite(IN3,LOW);
-  digitalWrite(IN4,HIGH);
-}
-
-void right() {
-  is_running = true;
-  analogWrite(ENA,turn_speed);
-  analogWrite(ENB,turn_speed);
-  digitalWrite(IN1,HIGH);
-  digitalWrite(IN2,LOW);
-  digitalWrite(IN3,HIGH);
-  digitalWrite(IN4,LOW);
-}
-
-void stop(){
-  //is_running = false;
-  digitalWrite(ENA,LOW);
-  digitalWrite(ENB,LOW);
-  digitalWrite(LED, LOW);
-  //Serial.println("Stop!");
+void update_rsl() {
+  int timeout = current_state == STATE_DISABLED ? 500 : 2500;
+  if (millis() - rsl_millis >= timeout) {
+    rsl_millis = millis();
+    rsl_state = !rsl_state;
+    digitalWrite(LED, rsl_state);
+  }
 }
 
 // ultrasonic distance
@@ -116,16 +85,67 @@ unsigned int get_distance(void) {
   delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
   duration = ((unsigned int)pulseIn(ECHO_PIN, HIGH) / 58); // .0343 cm/uS there & back
+  if (duration == 0) {
+    return 150; // timeout
+  }
   // could clamp to 150cm here
   return duration;
 }
 
-void update_rsl() {
-  if (millis() - rsl_millis > 1000) {
-    rsl_millis = millis();
-    rsl_state = !rsl_state;
-    digitalWrite(LED, rsl_state);
-  }
+double get_photo() {
+  double photo_left = analogRead(PHOTO_LEFT);
+  double photo_right = analogRead(PHOTO_RIGHT);
+  return (photo_left + photo_right) / 2.0;
+}
+
+void forward() {
+  digitalWrite(ENA,drive_speed);
+  digitalWrite(ENB,drive_speed);
+  digitalWrite(IN1,HIGH);
+  digitalWrite(IN2,LOW);
+  digitalWrite(IN3,LOW);
+  digitalWrite(IN4,HIGH);
+}
+
+void backward() {
+  digitalWrite(ENA,drive_speed);
+  digitalWrite(ENB,drive_speed);
+  digitalWrite(IN1,LOW);
+  digitalWrite(IN2,HIGH);
+  digitalWrite(IN3,HIGH);
+  digitalWrite(IN4,LOW);
+}
+
+void left() {
+  analogWrite(ENA,turn_speed);
+  analogWrite(ENB,turn_speed);
+  digitalWrite(IN1,LOW);
+  digitalWrite(IN2,HIGH);
+  digitalWrite(IN3,LOW);
+  digitalWrite(IN4,HIGH);
+}
+
+void right() {
+  analogWrite(ENA,turn_speed);
+  analogWrite(ENB,turn_speed);
+  digitalWrite(IN1,HIGH);
+  digitalWrite(IN2,LOW);
+  digitalWrite(IN3,HIGH);
+  digitalWrite(IN4,LOW);
+}
+
+void stop(){
+  digitalWrite(ENA,LOW);
+  digitalWrite(ENB,LOW);
+}
+
+void gyro_reset() {
+  gyro_angle_z_offset = mpu.getAngleZ();
+}
+
+double gyro_get_angle() {
+  mpu.update();
+  return (mpu.getAngleZ() - gyro_angle_z_offset) / 2.0;
 }
 
 void setup() {
@@ -140,7 +160,6 @@ void setup() {
   pinMode(IN3,OUTPUT);
   pinMode(IN4,OUTPUT);
   stop();
-  is_running = false;
 
   // Ultrasonic setup
   pinMode(ECHO_PIN, INPUT);
@@ -168,82 +187,33 @@ void setup() {
   mpu.calcOffsets(true,true); // gyro and accelero
   digitalWrite(LED, LOW);
   Serial.println("MPU6050 Done!\n");
-  timer = millis();
+
+  gyro_reset();
+  turn_millis = millis();
+  turn_count = 0;
 }
 
 void loop() {
-  update_rsl();
-  if (Serial.available()) {
-    digitalWrite(LED,HIGH);
-    char cmd = Serial.read();
-    Serial.print("**** Got: ");
-    Serial.print(cmd);
-    Serial.print(" ");
-    Serial.println((int)cmd);
-    switch(cmd) {
-      //case 'f': forward(); break;
-      //case 'b': back();    break;
-    case 'l': left();    break;
-    case 't': slowturn();    break;
-    case 'r': right();   break;
-    case 's': stop();    break;
-    default: break;
-    }
-  }
 
   mpu.update(); // update frequently
 
-  int distance = get_distance();
-  if (distance < 20) {
-    stop();
+  if (turning_left) {
+     left();
+  } else {
+     right();
   }
-  // log data at most 20 times a second
-  // only print if running to avoid filling the buffer
-  if (is_running && millis() - timer > 50) {
-    double temp = mpu.getTemp();
-
-    double ax = mpu.getAccX();
-    double ay = mpu.getAccY();
-    double az = mpu.getAccZ();
-
-    double gx = mpu.getGyroX();
-    double gy = mpu.getGyroY();
-    double gz = mpu.getGyroZ();
-
-    double tx = mpu.getAngleX();
-    double ty = mpu.getAngleY();
-    double tz = mpu.getAngleZ();
-
-    timer = millis();
-
-    double photo_left = analogRead(PHOTO_LEFT);
-    double photo_right = analogRead(PHOTO_RIGHT);
-
-    Serial.print(ax);
-    Serial.print(" ");
-    Serial.print(ay);
-    Serial.print(" ");
-    Serial.print(az);
-    Serial.print(" ");
-    Serial.print(gx);
-    Serial.print(" ");
-    Serial.print(gy);
-    Serial.print(" ");
-    Serial.print(gz);
-    Serial.print(" ");
-    Serial.print(tx);
-    Serial.print(" ");
-    Serial.print(ty);
-    Serial.print(" ");
-    Serial.print(tz);
-    Serial.print(" ");
-    Serial.print(temp);
-    Serial.print(" ");
-    Serial.print(photo_left);
-    Serial.print(" ");
-    Serial.print(photo_right);
-    Serial.print(" ");
-    Serial.println(distance);
+  delay(100);
+  stop();
+  delay(50);
+  Serial.print(turning_left ? "left" : "right");
+  Serial.print(" ");
+  Serial.print(turn_count);
+  Serial.print(" ");
+  Serial.println(gyro_get_angle());
+  turn_count += 1;
+  if (turn_count > 10) {
+    turn_count = 0;
+    turning_left = !turning_left;
   }
-
+  
 }
