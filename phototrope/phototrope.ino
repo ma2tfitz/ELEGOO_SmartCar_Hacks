@@ -36,61 +36,112 @@
 #define ECHO_PIN A2
 #define TRIG_PIN A3
 
-boolean is_tracking = false;
-double target_angle = 0;
-boolean is_running = false;
-
 #define MIN_SPEED 90
 #define MAX_SPEED 160
+
+#define STATE_DISABLED 0
+#define STATE_SEEKING 1
+#define STATE_AVOIDING 2
+#define STATE_DRIVING 3
+
+int current_state = STATE_DISABLED;
+
 unsigned char turn_speed = 120;
 unsigned char drive_speed = 100;
 
 long rsl_millis = 0;
 long rsl_state = LOW;
 
+double current_photo;
+double gyro_angle_z_offset;
+double gyro_angle_z_target;
+
 // IMU setup
 MPU6050 mpu(Wire);
-long timer = 0;
 
-double offset_gyro_angle_z;
+void setup() {
+  Serial.begin(9600);
 
-void gyro_reset() {
-  offset_gyro_angle_z = mpu.getAngleZ();
-}
+  // Motor setup
+  pinMode(LED,OUTPUT);
+  pinMode(ENA,OUTPUT);
+  pinMode(ENB,OUTPUT);
+  pinMode(IN1,OUTPUT);
+  pinMode(IN2,OUTPUT);
+  pinMode(IN3,OUTPUT);
+  pinMode(IN4,OUTPUT);
+  stop();
+  is_running = false;
 
-double gyro_get_angle() {
-  return (mpu.getAngleZ() - offset_gyro_angle_z) / 2;
-}
+  // Ultrasonic setup
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(TRIG_PIN, OUTPUT);
 
-void tracking_start(double angle) {
-  is_tracking = true;
-  target_angle = angle;
+  // IMU setup
+  Wire.begin();
+
+  byte status = mpu.begin();
+  while (status != 0) {
+    Serial.print("Unable to connect to MPU6050: ");
+    Serial.println(status);
+    digitalWrite(LED, HIGH);
+    delay(2000);
+    digitalWrite(LED, LOW);
+    delay(500);
+    status = mpu.begin();
+  }
+
+  digitalWrite(LED, HIGH);
+  Serial.print(F("MPU6050 connected: "));
+  Serial.println(status);
+  Serial.println(F("Calculating offsets, do not move MPU6050"));
+  delay(1000);
+  mpu.calcOffsets(true,true); // gyro and accelero
+  digitalWrite(LED, LOW);
   gyro_reset();
-  if (angle > 0) {
-    left();
-  } else {
-    right();
+  Serial.println("MPU6050 Done!\n");
+}
+
+
+void update_rsl() {
+  int timeout = current_state == STATE_DISABLED ? 500 : 2500;
+  if (millis() - rsl_millis >= timeout) {
+    rsl_millis = millis();
+    rsl_state = !rsl_state;
+    digitalWrite(LED, rsl_state);
   }
 }
 
-boolean tracking_is_done() {
-  double angle = gyro_get_angle();
-  double delta = target_angle - angle;
-  if (delta > 0) {
-    left();
-  } else {
-    right();
+// ultrasonic distance
+unsigned int get_distance(void) {
+  unsigned int duration = 0;
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  duration = ((unsigned int)pulseIn(ECHO_PIN, HIGH) / 58); // .0343 cm/uS there & back
+  if (duration == 0) {
+    return 150; // timeout
   }
+  // could clamp to 150cm here
+  return duration;
+}
 
-  if (false && millis() - timer > 50) {
-    timer = millis();
-    Serial.print(delta);
-    Serial.print(" ");
-    Serial.print(target_angle);
-    Serial.print(" ");
-    Serial.println(angle);
-  }
-  return abs(delta) < 0.35;
+double get_photo() {
+  double photo_left = analogRead(PHOTO_LEFT);
+  double photo_right = analogRead(PHOTO_RIGHT);
+  return (photo_left + photo_right) / 2.0;
+}
+
+void enable() {
+  current_state = STATE_SEEKING;
+  stop();
+}
+
+void disable() {
+  current_state = STATE_DISABLED;
+  stop();
 }
 
 void forward() {
@@ -134,162 +185,105 @@ void right() {
 }
 
 void stop(){
-  //is_running = false;
-  is_tracking = false;
   digitalWrite(ENA,LOW);
   digitalWrite(ENB,LOW);
-  digitalWrite(LED, LOW);
-  //Serial.println("Stop!");
 }
 
-// ultrasonic distance
-unsigned int get_distance(void) {
-  unsigned int duration = 0;
-  digitalWrite(TRIG_PIN, LOW);
-  delayMicroseconds(2);
-  digitalWrite(TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
-  duration = ((unsigned int)pulseIn(ECHO_PIN, HIGH) / 58); // .0343 cm/uS there & back
-  if (duration == 0) {
-    return 150; // timeout
-  }
-  // could clamp to 150cm here
-  return duration;
+void gyro_reset() {
+  gyro_angle_z_offset = mpu.getAngleZ();
 }
 
-void update_rsl() {
-  if (millis() - rsl_millis > 1000) {
-    rsl_millis = millis();
-    rsl_state = !rsl_state;
-    digitalWrite(LED, rsl_state);
-  }
+double gyro_get_angle() {
+  mpu.update();
+  return (mpu.getAngleZ() - gyro_angle_z_offset) / 2.0;
 }
 
-void setup() {
-  Serial.begin(9600);
-
-  // Motor setup
-  pinMode(LED,OUTPUT);
-  pinMode(ENA,OUTPUT);
-  pinMode(ENB,OUTPUT);
-  pinMode(IN1,OUTPUT);
-  pinMode(IN2,OUTPUT);
-  pinMode(IN3,OUTPUT);
-  pinMode(IN4,OUTPUT);
-  stop();
-  is_running = false;
-
-  // Ultrasonic setup
-  pinMode(ECHO_PIN, INPUT);
-  pinMode(TRIG_PIN, OUTPUT);
-
-  // IMU setup
-  Wire.begin();
-
-  byte status = mpu.begin();
-  while (status != 0) {
-    Serial.print("Unable to connect to MPU6050: ");
-    Serial.println(status);
-    digitalWrite(LED, HIGH);
-    delay(2000);
-    digitalWrite(LED, LOW);
-    delay(500);
-    status = mpu.begin();
-  }
-
-  digitalWrite(LED, HIGH);
-  Serial.print(F("MPU6050 connected: "));
-  Serial.println(status);
-  Serial.println(F("Calculating offsets, do not move MPU6050"));
-  delay(1000);
-  mpu.calcOffsets(true,true); // gyro and accelero
-  digitalWrite(LED, LOW);
+void turn_to_angle(double angle) {
+  gyro_angle_z_target = angle;
   gyro_reset();
-  Serial.println("MPU6050 Done!\n");
-  
-  timer = millis();
+  if (angle > 0) {
+    left();
+  } else {
+    right();
+  }
+  start_millis = millis();
+  end_millis = start_millis + 5000; // give up in 5 seconds
+}
+
+boolean is_turn_done() {
+  if (millis() > end_millis) {
+    return true; // give up on timeout
+  }
+  double delta = gyro_angle_z_target - gyro_get_angle();
+  if (delta > 0) {
+    left();
+  } else {
+    right();
+  }
+  return abs(delta) < 0.35;
+}
+
+void turn_to_light() {
+  double photo_max_angle = 0;
+  double photo_max_value = 0;
+  gyro_reset();
+  left();
+  while(gyro_get_angle() < 45) {
+  }
+  stop();
+  gyro_reset();
+  right();
+  while(gyro_get_angle() > -45) {
+    double p = get_photo();
+    if (p > photo_max_value) {
+      photo_max_value = p;
+      photo_max_angle = gyro_get_angle();
+    }
+  }
+  stop();
+  left();
+  while(gyro_get_angle() < photo_max_angle) {
+  }
+  stop();
 }
 
 void loop() {
-  update_rsl();
   if (Serial.available()) {
     char cmd = Serial.read();
     Serial.print("**** Got: ");
-    Serial.print(cmd);
-    Serial.print(" ");
-    Serial.println((int)cmd);
+    Serial.println(cmd);
     switch(cmd) {
-      //case 'f': forward(); break;
-      //case 'b': back();    break;
-    case 'l': left();    break;
-    case 't': tracking_start(180);  break;
-    case 'u': tracking_start(-180); break;
-    case 'v': tracking_start(90);   break;
-    case 'w': tracking_start(-90);  break;
-    case 'x': tracking_start(120);  break;   
-    case 'r': right();   break;
-    case 'f': forward(); break;
-    case 'b': backward(); break;
-    case 's': stop();    break;
+    case 'e': enable();  break; // go
+    case 'd': disable();  break;
     default: break;
     }
   }
 
+  update_rsl();
   mpu.update(); // update frequently
-
-  if (is_tracking) {
-    if (tracking_is_done()) {
-      stop();
-    }
-  }
 
   int distance = get_distance();
   if (distance < 20) {
+    backward();
+    delay(100);
     stop();
+    current_state = STATE_AVOIDING;
+    turn_to_angle(180);
   }
-  // log data while tracking
-  if (is_tracking && millis() - timer >= 50) {
-    double temp = mpu.getTemp();
-
-    double ax = mpu.getAccX();
-    double ay = mpu.getAccY();
-    double az = mpu.getAccZ();
-
-    double gx = mpu.getGyroX();
-    double gy = mpu.getGyroY();
-    double gz = mpu.getGyroZ();
-
-    double tx = mpu.getAngleX();
-    double ty = mpu.getAngleY();
-    double tz = mpu.getAngleZ();
-
-    timer = millis();
-
-    double photo_left = analogRead(PHOTO_LEFT);
-    double photo_right = analogRead(PHOTO_RIGHT);
-
-    Serial.print(gyro_get_angle());
-    Serial.print(" ");
-    Serial.print(ax);
-    Serial.print(" ");
-    Serial.print(ay);
-    Serial.print(" ");
-    Serial.print(az);
-    Serial.print(" ");
-    Serial.print(tx);
-    Serial.print(" ");
-    Serial.print(ty);
-    Serial.print(" ");
-    Serial.print(tz);
-    Serial.print(" ");
-    Serial.print(temp);
-    Serial.print(" ");
-    Serial.print(photo_left);
-    Serial.print(" ");
-    Serial.print(photo_right);
-    Serial.print(" ");
-    Serial.println(distance);
+  if (current_state == STATE_AVOIDING) {
+    if (is_turn_done()) {
+      stop();
+      current_state = STATE_SEEKING;
+    }
+  } else if (current_state == STATE_SEEKING) {
+    turn_to_light();
+    current_photo = get_photo();
+    current_state = STATE_DRIVING;
+  } else if (current_state == STATE_DRIVING) {
+    forward();
+    if (get_photo < current_photo * 0.9) {
+      stop();
+      current_state = STATE_SEEKING;
+    }
   }
-
 }
